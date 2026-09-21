@@ -47,6 +47,8 @@ class AirSimEnv:
                 np.array([0.0, 0.0, 1.5], dtype=np.float32),
                 np.array([0.0, 0.0, -1.5], dtype=np.float32),
             ]
+        self.brake_action_idx = len(self.discrete_actions)
+        self.num_discrete_actions = len(self.discrete_actions) + 1
 
     def reset(self) -> dict[str, Any]:
         self.current_step = 0
@@ -114,8 +116,11 @@ class AirSimEnv:
             prev_distances[drone_id] = float(np.linalg.norm(self.drone_positions[i] - self.target_positions[i]))
             act = actions.get(drone_id, 0)
             if self.action_space_type == "discrete":
-                idx = int(act) if int(act) < len(self.discrete_actions) else 0
-                target_vel = self.discrete_actions[idx]
+                idx = int(act) if int(act) < self.num_discrete_actions else 0
+                if idx == self.brake_action_idx:
+                    target_vel = -4.0 * self.drone_velocities[i]
+                else:
+                    target_vel = self.discrete_actions[idx]
             else:
                 target_vel = np.clip(np.array(act, dtype=np.float32), -3.0, 3.0)
             thrust = float(np.linalg.norm(target_vel))
@@ -158,6 +163,7 @@ class AirSimEnv:
             "all_reached": all_reached,
             "collisions": collisions,
             "distances": curr_distances,
-            "current_step": self.current_step
+            "current_step": self.current_step,
+            "thrust_magnitudes": thrust_magnitudes
         }
         return obs, rewards, done, info
