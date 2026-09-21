@@ -1,22 +1,21 @@
-﻿from typing import Any, Dict, List, Tuple
+﻿from typing import Any
+
 import numpy as np
 import torch
+
 from state_processing.state import StateProcessor
 
+
 class GraphBuilder:
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
-        env_cfg = config.get("environment", {})
         sim_cfg = config.get("simulation", {})
         m_cfg = config.get("model", {})
-        self.edge_rule = env_cfg.get("edge_rule", "distance_threshold")
-        self.radius = env_cfg.get("edge_threshold_radius", 15.0)
-        self.knn_k = env_cfg.get("knn_k", 4)
         self.max_nodes = sim_cfg.get("max_nodes", 30)
         self.node_dim = m_cfg.get("node_dim", 16)
         self.processor = StateProcessor(config)
 
-    def build_graph(self, raw_state: Dict[str, Any]) -> Dict[str, Any]:
+    def build_graph(self, raw_state: dict[str, Any]) -> dict[str, Any]:
         drones_dict = raw_state.get("drones", {})
         obstacles_list = raw_state.get("obstacles", [])
         targets_dict = raw_state.get("targets", {})
@@ -59,19 +58,9 @@ class GraphBuilder:
 
         diff = positions[:, None, :] - positions[None, :, :]
         dist_matrix = np.linalg.norm(diff, axis=-1).astype(np.float32)
-        edges = []
-        valid_count = min(actual_num_nodes, self.max_nodes)
-        for i in range(valid_count):
-            for j in range(valid_count):
-                if i == j:
-                    continue
-                if self.edge_rule == "distance_threshold" and dist_matrix[i, j] <= self.radius:
-                    edges.append((i, j))
-        edge_index = np.empty((2, 0), dtype=np.int64) if len(edges) == 0 else np.array(edges, dtype=np.int64).T
 
         return {
             "x": torch.from_numpy(x).unsqueeze(0),
-            "edge_index": torch.from_numpy(edge_index),
             "mask": torch.from_numpy(mask).unsqueeze(0),
             "node_types": torch.from_numpy(node_types).unsqueeze(0),
             "drone_indices": drone_indices,

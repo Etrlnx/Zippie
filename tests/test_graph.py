@@ -20,7 +20,6 @@ def test_graph_builder(config):
 
     assert "x" in graph
     assert "mask" in graph
-    assert "edge_index" in graph
     assert "drone_indices" in graph
     assert graph["x"].shape == (1, config["simulation"]["max_nodes"], config["model"]["node_dim"])
     assert graph["mask"].shape == (1, config["simulation"]["max_nodes"])
