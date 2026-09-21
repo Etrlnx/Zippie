@@ -1,0 +1,80 @@
+[experiment]
+name = "gt_marl_uav_default"
+seed = 42
+device = "cpu"
+tracker = "tensorboard"
+log_dir = "logs"
+checkpoint_dir = "checkpoints"
+save_freq = 50
+
+[simulation]
+backend = "fast_surrogate"
+num_agents = 3
+max_nodes = 30
+max_steps = 500
+world_bounds = [-50.0, 50.0, -50.0, 50.0, 0.0, 20.0]
+
+[simulation.airsim]
+ip = "127.0.0.1"
+port = 41451
+timeout_sec = 10
+vehicle_names = ["Drone1", "Drone2", "Drone3"]
+
+[environment]
+action_space = "discrete"
+sensor_range = 20.0
+sensor_noise_std = 0.02
+wind_perturbation = 0.0
+reach_distance = 2.0
+drone_radius = 0.5
+dt = 0.1
+battery_drain_rate = 0.0005
+num_obstacles = 10
+discrete_actions = [
+    [0.0, 0.0, 0.0],
+    [2.0, 0.0, 0.0],
+    [-2.0, 0.0, 0.0],
+    [0.0, 2.0, 0.0],
+    [0.0, -2.0, 0.0],
+    [0.0, 0.0, 1.5],
+    [0.0, 0.0, -1.5],
+]
+
+[model]
+node_dim = 16
+hidden_dim = 64
+num_layers = 3
+num_heads = 4
+dropout = 0.1
+
+[rl]
+algorithm = "MAPPO"
+total_timesteps = 1536000
+n_steps = 2048
+batch_size = 64
+n_epochs = 10
+gamma = 0.99
+gae_lambda = 0.95
+clip_range = 0.2
+learning_rate = 0.0003
+entropy_coef = 0.01
+entropy_coef_final = 0.001
+max_grad_norm = 0.5
+target_kl = 0.01
+max_iterations = 750
+
+[reward]
+progress_weight = 1.0
+collision_penalty = -5.0
+energy_penalty = -0.01
+completion_bonus = 10.0
+
+[termination]
+all_targets_reached = true
+timeout_terminates = true
+battery_depleted_terminates = true
+
+[evaluation]
+enabled = true
+eval_freq = 10
+eval_episodes = 5
