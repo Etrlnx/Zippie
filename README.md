@@ -32,7 +32,7 @@ Autonomous multi-UAV navigation in congested or obstacle-rich 3D airspaces prese
 
 This framework solves these challenges through:
 - **Dynamic Graph Representation**: Variable numbers of drones, obstacles, and targets are encoded as nodes in a unified spatial graph.
-- **Relational Reasoning via Graph Transformer**: Nodes communicate via multi-head self-attention with continuous logarithmic distance biases ($-\gamma \cdot \log(1 + d_{ij})$), preventing node isolation while prioritizing local interactions.
+- **Relational Reasoning via Graph Transformer**: Nodes communicate via multi-head self-attention with continuous logarithmic distance biases ($-|\gamma| \cdot \log(1 + d_{ij})$), preventing node isolation while prioritizing local interactions.
 - **CTDE (MAPPO) Policy**: Decentralized actor heads execute actions per drone from individual node embeddings, while a centralized value critic evaluates global team states.
 - **Intrinsic Explainability**: Multi-layer attention weights are exposed to rank top influential neighbors (drones/obstacles) guiding each maneuver.
 
