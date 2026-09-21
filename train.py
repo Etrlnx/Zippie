@@ -1,7 +1,7 @@
 import argparse
 import random
-import sys
 import tomllib
+
 import numpy as np
 import torch
 
@@ -44,7 +44,8 @@ def main():
     set_seed(seed)
 
     env = AirSimEnv(config, seed=seed)
-    agent = MAPPOAgent(config)
+    action_dim = env.num_discrete_actions if env.action_space_type == "discrete" else 3
+    agent = MAPPOAgent(config, action_dim=action_dim)
     trainer = MAPPOTrainer(config, env, agent)
     
     max_iterations = config.get("rl", {}).get("max_iterations", 100)

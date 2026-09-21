@@ -19,7 +19,7 @@ def main():
         config = tomllib.load(f)
 
     env = AirSimEnv(config)
-    action_dim = len(env.discrete_actions) if env.action_space_type == "discrete" else 3
+    action_dim = env.num_discrete_actions if env.action_space_type == "discrete" else 3
     runner = BaselineRunner(config)
 
     agent = MAPPOAgent(config, action_dim=action_dim)
