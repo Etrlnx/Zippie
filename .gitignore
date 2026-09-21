@@ -1,0 +1,56 @@
+﻿# ── Private knowledge graph (never commit this) ───────────────────────────────
+knowledge-graph/
+CLAUDE.md
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.installed.cfg
+.pytest_cache/
+.ruff_cache/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+venv/
+env/
+.venv/
+ENV/
+
+# ── Environment variables ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Model checkpoints & training artifacts ───────────────────────────────────
+checkpoints/
+logs/
+runs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+
+# ── AirSim ────────────────────────────────────────────────────────────────────
+AirSim/
+*.exe
+*.bin
+
+# ── Data / uploads ────────────────────────────────────────────────────
+uploads/
+data/raw/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
