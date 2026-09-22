@@ -16,6 +16,7 @@ def test_metric_evaluator(config):
     logs = [
         {
             "all_reached": True,
+            "any_reached": True,
             "steps": 50,
             "total_collisions": 1,
             "total_energy": 12.5,

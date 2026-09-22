@@ -18,7 +18,7 @@ class MetricEvaluator:
         if n == 0:
             return {k: 0.0 for k in _METRIC_KEYS}
 
-        success_rate = sum(1 for l in logs if l.get("all_reached", False)) / n
+        success_rate = sum(1 for l in logs if l.get("any_reached", False)) / n
         completion_time = sum(l.get("steps", 0) for l in logs) / n
         collision_rate = sum(1 for l in logs if l.get("total_collisions", 0) > 0) / n
         energy_consumption = sum(l.get("total_energy", 0.0) for l in logs) / n

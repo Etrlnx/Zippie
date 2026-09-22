@@ -78,6 +78,7 @@ class BaselineRunner:
         steps = 0
         done = False
         all_reached = False
+        any_reached = False
 
         device = next(agent.parameters()).device
         while not done:
@@ -99,9 +100,11 @@ class BaselineRunner:
             for i in range(num_agents):
                 trajectories[f"drone_{i}"].append(obs["drones"][f"drone_{i}"]["pos"].tolist())
             all_reached = info["all_reached"]
+            any_reached = any_reached or any(d < env.reach_dist for d in info["distances"].values())
 
         return {
             "all_reached": all_reached,
+            "any_reached": any_reached,
             "steps": steps,
             "total_collisions": total_collisions,
             "total_energy": total_energy,
