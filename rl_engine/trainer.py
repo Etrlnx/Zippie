@@ -4,7 +4,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.distributions import Categorical
 from torch.utils.tensorboard import SummaryWriter
 
@@ -142,6 +141,7 @@ class MAPPOTrainer:
 
                 actions_b = buf.actions[batch_idx].to(self.device)
                 old_log_probs_b = buf.log_probs[batch_idx].to(self.device)
+                old_values_b = buf.values[batch_idx].to(self.device)
                 adv_b = advantages[batch_idx].to(self.device)
                 ret_b = returns[batch_idx].to(self.device)
 
@@ -153,7 +153,11 @@ class MAPPOTrainer:
                 surr1 = ratio * adv_b
                 surr2 = torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range) * adv_b
                 actor_loss = -torch.min(surr1, surr2).mean()
-                critic_loss = F.mse_loss(values_b, ret_b)
+
+                values_clipped = old_values_b + torch.clamp(values_b - old_values_b, -self.clip_range, self.clip_range)
+                vf_loss_unclipped = (values_b - ret_b) ** 2
+                vf_loss_clipped = (values_clipped - ret_b) ** 2
+                critic_loss = torch.max(vf_loss_unclipped, vf_loss_clipped).mean()
                 loss = actor_loss + 0.5 * critic_loss - entropy_coef * entropy
 
                 self.optimizer.zero_grad()
