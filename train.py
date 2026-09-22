@@ -35,6 +35,7 @@ def print_progress(iteration: int, total: int, global_step: int, total_timesteps
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/default.toml")
+    parser.add_argument("--resume", type=str, default="", help="Path to a checkpoint to warm-start the agent's weights from")
     args = parser.parse_args()
 
     with open(args.config, "rb") as f:
@@ -46,6 +47,9 @@ def main():
     env = AirSimEnv(config, seed=seed)
     action_dim = env.num_discrete_actions if env.action_space_type == "discrete" else 3
     agent = MAPPOAgent(config, action_dim=action_dim)
+    if args.resume:
+        agent.load_state_dict(torch.load(args.resume, map_location="cpu"))
+        print(f"Resumed weights from {args.resume}")
     trainer = MAPPOTrainer(config, env, agent)
     
     max_iterations = config.get("rl", {}).get("max_iterations", 100)
