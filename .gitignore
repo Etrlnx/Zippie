@@ -1,6 +1,7 @@
 ﻿# ── Private knowledge graph (never commit this) ───────────────────────────────
 knowledge-graph/
 CLAUDE.md
+.claude/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -29,8 +30,10 @@ ENV/
 # ── Model checkpoints & training artifacts ───────────────────────────────────
 checkpoints/
 checkpoints_toy_debug/
+checkpoints_bc_finetune/
 logs/
 logs_toy_debug/
+logs_bc_finetune/
 runs/
 wandb/
 *.pt
