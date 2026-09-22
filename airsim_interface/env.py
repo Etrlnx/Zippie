@@ -50,22 +50,41 @@ class AirSimEnv:
         self.brake_action_idx = len(self.discrete_actions)
         self.num_discrete_actions = len(self.discrete_actions) + 1
 
+    def _debias_spawn_axes(self, drone_pos: np.ndarray, target_pos: np.ndarray, axis_lo: np.ndarray, axis_hi: np.ndarray) -> np.ndarray:
+        gap = np.abs(target_pos - drone_pos)
+        dominant = int(np.argmax(gap))
+        others = [a for a in range(3) if a != dominant]
+        if gap[dominant] <= 1.5 * gap[others].max():
+            return target_pos
+        for a in others:
+            sign = 1.0 if target_pos[a] >= drone_pos[a] else -1.0
+            max_room = (axis_hi[a] - drone_pos[a]) if sign > 0 else (drone_pos[a] - axis_lo[a])
+            boosted_gap = min(gap[dominant], max_room)
+            target_pos[a] = np.clip(drone_pos[a] + sign * boosted_gap, axis_lo[a], axis_hi[a])
+        gap = np.abs(target_pos - drone_pos)
+        if int(np.argmax(gap)) == dominant:
+            runner_up = gap[others].max()
+            sign = 1.0 if target_pos[dominant] >= drone_pos[dominant] else -1.0
+            target_pos[dominant] = np.clip(drone_pos[dominant] + sign * runner_up, axis_lo[dominant], axis_hi[dominant])
+        return target_pos
+
     def reset(self) -> dict[str, Any]:
         self.current_step = 0
         self.drone_velocities.fill(0.0)
         self.drone_orientations.fill(0.0)
         self.drone_batteries.fill(1.0)
+        axis_lo = np.array([self.bounds[0] + 5, self.bounds[2] + 5, self.bounds[4] + 2], dtype=np.float32)
+        axis_hi = np.array([self.bounds[1] - 5, self.bounds[3] - 5, self.bounds[5] - 2], dtype=np.float32)
+        min_agent_sep = 8.0
         for i in range(self.num_agents):
-            self.drone_positions[i] = np.array([
-                np.random.uniform(self.bounds[0] + 5, self.bounds[0] + 15),
-                np.random.uniform(self.bounds[2] + 5 + i * 10, self.bounds[2] + 15 + i * 10),
-                np.random.uniform(2.0, 10.0)
-            ], dtype=np.float32)
-            self.target_positions[i] = np.array([
-                np.random.uniform(self.bounds[1] - 15, self.bounds[1] - 5),
-                np.random.uniform(self.bounds[2] + 5 + i * 10, self.bounds[2] + 15 + i * 10),
-                np.random.uniform(2.0, 10.0)
-            ], dtype=np.float32)
+            for attempt in range(100):
+                drone_pos = np.random.uniform(axis_lo, axis_hi).astype(np.float32)
+                if all(np.linalg.norm(drone_pos - self.drone_positions[j]) >= min_agent_sep for j in range(i)):
+                    break
+            target_pos = np.random.uniform(axis_lo, axis_hi).astype(np.float32)
+            target_pos = self._debias_spawn_axes(drone_pos, target_pos, axis_lo, axis_hi)
+            self.drone_positions[i] = drone_pos
+            self.target_positions[i] = target_pos
         self.obstacles = []
         for _ in range(self.num_obstacles):
             obs_pos = np.array([
