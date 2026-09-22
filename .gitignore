@@ -28,7 +28,9 @@ ENV/
 
 # ── Model checkpoints & training artifacts ───────────────────────────────────
 checkpoints/
+checkpoints_toy_debug/
 logs/
+logs_toy_debug/
 runs/
 wandb/
 *.pt

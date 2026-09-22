@@ -42,14 +42,14 @@ discrete_actions = [
 
 [model]
 node_dim = 16
-hidden_dim = 64
+hidden_dim = 128
 num_layers = 3
 num_heads = 4
 dropout = 0.1
 
 [rl]
 algorithm = "MAPPO"
-total_timesteps = 1536000
+total_timesteps = 2048000
 n_steps = 2048
 batch_size = 64
 n_epochs = 10
@@ -57,11 +57,11 @@ gamma = 0.99
 gae_lambda = 0.95
 clip_range = 0.2
 learning_rate = 0.0003
-entropy_coef = 0.01
-entropy_coef_final = 0.001
+entropy_coef = 0.012
+entropy_coef_final = 0.002
 max_grad_norm = 0.5
 target_kl = 0.01
-max_iterations = 750
+max_iterations = 1000
 
 [reward]
 progress_weight = 1.0
