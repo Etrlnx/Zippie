@@ -1,7 +1,7 @@
 # Graph Transformer Multi-Agent Reinforcement Learning for UAV Navigation
 
 ![Status](https://img.shields.io/badge/status-active%20development-brightgreen)
-![Python](https://img.shields.io/badge/python-3.12-blue)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.2%2B-ee4c2c)
 ![Package%20Manager](https://img.shields.io/badge/package%20manager-uv-8a2be2)
 ![RL](https://img.shields.io/badge/RL-MAPPO%20%2F%20CTDE-informational)
@@ -35,6 +35,7 @@ This framework solves these challenges through:
 - **Relational Reasoning via Graph Transformer**: Nodes communicate via multi-head self-attention with continuous logarithmic distance biases ($-|\gamma| \cdot \log(1 + d_{ij})$), preventing node isolation while prioritizing local interactions.
 - **CTDE (MAPPO) Policy**: Decentralized actor heads execute actions per drone from individual node embeddings, while a centralized value critic evaluates global team states.
 - **Intrinsic Explainability**: Multi-layer attention weights are exposed to rank top influential neighbors (drones/obstacles) guiding each maneuver.
+- **Behavior Cloning Bootstrap**: Optional imitation-learning warm start (`bc_pretrain.py`) against a greedy oracle, then RL fine-tuned — the step that took success rate from 0% to non-zero on this task; see [§7](#7-usage--training).
 
 ---
 
@@ -56,7 +57,7 @@ flowchart LR
 - **`airsim_interface`**: Fast surrogate 3D physics environment with boundary constraints, obstacle collision checking, battery dynamics, and Microsoft AirSim compatibility.
 - **`state_processing`**: Fuses GPS, IMU, LiDAR range vectors, battery state, and target vectors into normalized 16-dimensional node feature vectors and calculates pairwise Euclidean distance matrices.
 - **`graph_transformer`**: Custom pure PyTorch Graph Transformer featuring learnable per-head distance penalty scaling ($\gamma$) and multi-head attention extraction.
-- **`rl_engine`**: Multi-Agent PPO (MAPPO) with Generalized Advantage Estimation (GAE), clipped surrogate objective, entropy regularization, and multi-objective reward assignment.
+- **`rl_engine`**: Multi-Agent PPO (MAPPO) with per-agent Generalized Advantage Estimation (GAE), clipped surrogate + value-clipped objective, entropy regularization, and multi-objective reward assignment. Action space is 8 discrete actions (hover, ±X, ±Y, ±Z, plus a dynamic brake that exactly zeroes current velocity in one step).
 - **`explainability`**: Attention rollout extraction, multi-layer attention heatmaps, and top-$K$ influential entity ranking per drone.
 - **`evaluation`**: End-to-end evaluation suite benchmarking against MLP and CNN baseline policies across 7 core flight metrics.
 
@@ -87,7 +88,7 @@ flowchart TD
 
 | Layer | Technology | Role |
 |---|---|---|
-| Runtime | Python 3.12 | Core programming environment |
+| Runtime | Python 3.11+ | Core programming environment |
 | Package Management | `uv` | High-performance virtual environment & dependency management |
 | Deep Learning | PyTorch $\ge 2.2$ | Neural network architectures, autograd, and GPU acceleration |
 | RL Algorithm | Custom MAPPO (CTDE) | Multi-agent on-policy actor-critic with GAE |
@@ -103,7 +104,9 @@ flowchart TD
 ```
 .
 ├── configs/
-│   └── default.toml            # TOML experiment & hyperparameter configuration
+│   ├── default.toml             # TOML experiment & hyperparameter configuration
+│   ├── bc_finetune.toml         # Same as default, separate checkpoint/log dirs for BC fine-tuning
+│   └── toy_debug.toml           # Tiny fast-smoke-test config (2 agents, ~15s run)
 ├── airsim_interface/
 │   ├── env.py                  # 3D surrogate environment & AirSim wrapper
 │   └── sensor_reader.py        # Multi-sensor simulation (GPS, IMU, LiDAR, battery)
@@ -124,7 +127,8 @@ flowchart TD
 │   ├── metrics.py              # 7-metric trajectory evaluation suite
 │   └── baselines.py            # MLP & CNN baseline agents and evaluation runner
 ├── tests/                      # Pytest unit & integration test suite
-├── train.py                    # Training CLI entry point with progress tracking
+├── train.py                    # Training CLI entry point with progress tracking; supports --resume
+├── bc_pretrain.py              # Behavior-cloning pretraining against a greedy oracle (see §7)
 ├── evaluate.py                 # Evaluation CLI entry point with baseline comparisons
 ├── pyproject.toml              # Dependencies and project metadata
 └── README.md
@@ -137,7 +141,7 @@ flowchart TD
 The project uses [`uv`](https://github.com/astral-sh/uv) for fast and reproducible package management.
 
 ### Prerequisites
-- Python 3.12 installed
+- Python 3.11 or 3.12 installed
 - `uv` installed (`pip install uv` or via the official installer)
 
 ### Setup
@@ -160,9 +164,25 @@ Train the Graph Transformer MAPPO policy using the default TOML configuration:
 uv run python train.py --config configs/default.toml
 ```
 
+### Resume / Warm-Start Training
+Continue from a checkpoint's weights (optimizer state and LR/entropy schedule restart fresh):
+```bash
+uv run python train.py --config configs/default.toml --resume checkpoints/best_model.pt
+```
+
 ### Monitor Training via TensorBoard
 ```bash
 uv run tensorboard --logdir logs
+```
+
+### Behavior Cloning Pretraining (Recommended)
+Pure RL from a random init struggled to converge on precise final approach on this task. Pretraining on a greedy-oracle policy, then RL fine-tuning from those weights, is the workflow that produced the first non-zero success rate:
+```bash
+# 1. Pretrain via imitation learning against the oracle
+uv run python bc_pretrain.py --episodes 300 --epochs 15 --batch_size 128
+
+# 2. Fine-tune the pretrained policy with RL
+uv run python train.py --config configs/bc_finetune.toml --resume checkpoints/bc_pretrained.pt
 ```
 
 ---
@@ -214,7 +234,7 @@ print(summary["summary_proxy"])
 
 The evaluation module computes 7 core trajectory metrics across all episodes:
 
-1. **`success_rate`**: Fraction of episodes where all drones reach their targets safely.
+1. **`success_rate`**: Fraction of episodes where **at least one** drone reaches its target (`any_reached`). Episode *termination* and the training reward's completion bonus still require all drones simultaneously — only this reported metric changed to the looser OR definition; the two are not directly comparable to older eval logs recorded before this redefinition.
 2. **`path_length`**: Cumulative trajectory distance flown per drone.
 3. **`collision_rate`**: Frequency of obstacle and inter-drone collisions.
 4. **`energy_consumption`**: Cumulative thrust/action cost across the fleet.
