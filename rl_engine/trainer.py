@@ -52,6 +52,8 @@ class MAPPOTrainer:
         self.max_grad_norm = rl_cfg.get("max_grad_norm", 0.5)
         self.target_kl = rl_cfg.get("target_kl", 0.01)
         self.total_timesteps = rl_cfg.get("total_timesteps", 1_000_000)
+        self.critic_warmup_iters = rl_cfg.get("critic_warmup_iters", 0)
+        self.iteration = 0
 
         self.checkpoint_dir = Path(exp_cfg.get("checkpoint_dir", "checkpoints"))
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -64,6 +66,7 @@ class MAPPOTrainer:
             device_cfg = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device_cfg)
         self.agent.to(self.device)
+        self.agent.eval()
 
         self.optimizer = torch.optim.Adam(self.agent.parameters(), lr=self.learning_rate)
         self.graph_builder = GraphBuilder(config)
@@ -158,7 +161,10 @@ class MAPPOTrainer:
                 vf_loss_unclipped = (values_b - ret_b) ** 2
                 vf_loss_clipped = (values_clipped - ret_b) ** 2
                 critic_loss = torch.max(vf_loss_unclipped, vf_loss_clipped).mean()
-                loss = actor_loss + 0.5 * critic_loss - entropy_coef * entropy
+                if self.iteration <= self.critic_warmup_iters:
+                    loss = 0.5 * critic_loss
+                else:
+                    loss = actor_loss + 0.5 * critic_loss - entropy_coef * entropy
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -174,6 +180,7 @@ class MAPPOTrainer:
     def train_with_progress(self, max_iterations: int, progress_callback: Any | None = None):
         start = time.time()
         for iteration in range(1, max_iterations + 1):
+            self.iteration = iteration
             buf = self.collect_rollout()
             advantages, returns = self._compute_gae(buf)
             stats = self._update(buf, advantages, returns)
