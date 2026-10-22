@@ -94,7 +94,7 @@ flowchart TD
 | RL Algorithm | Custom MAPPO (CTDE) | Multi-agent on-policy actor-critic with GAE |
 | Graph Attention | Custom Graph Transformer | Dense self-attention with continuous distance bias |
 | Simulation | Fast 3D Surrogate + AirSim Backend | Rapid RL training with optional photorealistic validation |
-| Visualization & Tracking | Matplotlib, TensorBoard, React + Vite | Metric logging, loss curves, attention heatmaps, interactive replay viewer |
+| Visualization & Tracking | Matplotlib, TensorBoard, React + Vite, three.js | Metric logging, loss curves, attention heatmaps, interactive 2D/3D replay viewer |
 | Testing | `pytest` | Unit and integration test suite |
 
 ---
@@ -260,7 +260,7 @@ print(summary["summary_proxy"])
 uv run python replay.py --config configs/bc_dagger.toml --checkpoint checkpoints_bc_dagger/final_model.pt --seed 2531 --out samples/replay
 cd web && npm install && npm run dev   # http://localhost:5173/
 ```
-The viewer has play/pause, a timeline slider, playback speed, and an optional overlay of the model's top attention targets (a hint at what it weighs, not proof of why it moved). Seed 2531 is a deliberately hard map: an obstacle sits on every drone's straight line to its target.
+The viewer has play/pause, a timeline slider, playback speed, and an optional overlay of the model's top attention targets (a hint at what it weighs, not proof of why it moved). Because the 2D maps are top-down, a drone's trail turns dashed while it flies over or under an obstacle without touching it. A **3D view** (three.js) below the maps shows the selected pilot at the same moment with real heights: drag to rotate, scroll to zoom, and follow the drop lines to the ground to read each drone's altitude. Seed 2531 is a deliberately hard map: an obstacle sits on every drone's straight line to its target.
 
 ---
 
