@@ -31,9 +31,13 @@ ENV/
 checkpoints/
 checkpoints_toy_debug/
 checkpoints_bc_finetune/
+checkpoints_bc_aware/
+checkpoints_bc_dagger/
 logs/
 logs_toy_debug/
 logs_bc_finetune/
+logs_bc_aware/
+logs_bc_dagger/
 runs/
 wandb/
 *.pt
