@@ -25,7 +25,7 @@ class GraphBuilder:
         drone_indices = []
 
         for idx, (d_id, d_data) in enumerate(drones_dict.items()):
-            feat = self.processor.process_agent_state(d_data, idx)
+            feat = self.processor.process_agent_state(d_data, idx, obstacles_list)
             node_features_list.append(feat)
             positions_list.append(d_data["pos"])
             node_types_list.append(0)

@@ -8,11 +8,24 @@ class StateProcessor:
         world_bounds = config.get("simulation", {}).get("world_bounds", [-50.0, 50.0, -50.0, 50.0, 0.0, 20.0])
         self.pos_scale = max(abs(b) for b in world_bounds)
         self.vel_scale = 5.0
+        self.sensor_range = config.get("environment", {}).get("sensor_range", 20.0)
+        self.obstacle_sensor = config.get("model", {}).get("obstacle_sensor", False)
 
-    def process_agent_state(self, drone_data: dict[str, Any], drone_idx: int) -> np.ndarray:
+    def nearest_obstacle_vector(self, pos: np.ndarray, obstacles: list[dict[str, Any]]) -> np.ndarray:
+        best, best_clear = np.zeros(3, dtype=np.float32), self.sensor_range
+        for o in obstacles:
+            delta = np.asarray(o["pos"], dtype=np.float32) - pos
+            d = float(np.linalg.norm(delta))
+            clear = d - o["radius"]
+            if d > 0 and clear < best_clear:
+                best_clear = clear
+                best = delta / d * (1.0 - max(clear, 0.0) / self.sensor_range)
+        return best
+
+    def process_agent_state(self, drone_data: dict[str, Any], drone_idx: int, obstacles: list[dict[str, Any]] = ()) -> np.ndarray:
         pos = drone_data["pos"] / self.pos_scale
         vel = drone_data["vel"] / self.vel_scale
-        ori = drone_data["orientation"]
+        ori = self.nearest_obstacle_vector(drone_data["pos"], obstacles) if self.obstacle_sensor else drone_data["orientation"]
         bat = drone_data["battery"]
         target_pos = drone_data.get("target_pos", np.zeros(3, dtype=np.float32)) / self.pos_scale
         rel_target = target_pos - pos
