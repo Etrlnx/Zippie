@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import DATA from "../../samples/replay/episodes.json";
 import SUMMARY from "../../samples/replay/summary.json";
+import Scene3D from "./Scene3D.jsx";
 
 const SUBS = {
   random: "Picks a direction at random every step.",
@@ -12,10 +13,12 @@ const LEGEND = [
   ["dot", "A drone. Its trail shows where it has been."],
   ["star", "The drone's target. Same colour as the drone that owns it."],
   ["obstacle", "An obstacle. Darker means lower to the ground."],
+  ["over", "Dashed trail: the drone is flying over or under an obstacle, with no contact."],
   ["arrived", "Green ring: the drone has reached its star."],
   ["crash", "Red ring: the drone is touching an obstacle or another drone."],
   ["attn", "Orange line: what the trained model is weighing most (toggle above)."],
 ];
+const DRONE_RADIUS = 0.5;
 const total = Math.max(...DATA.episodes.map((e) => e.frames.length));
 const [xmin, xmax, ymin, ymax, , zmax] = DATA.bounds;
 
@@ -23,7 +26,7 @@ function readTokens() {
   const s = getComputedStyle(document.documentElement);
   const g = (n) => s.getPropertyValue(n).trim();
   return {
-    ground: g("--ground"), ink: g("--ink"), line: g("--line"), crash: g("--crash"), ok: g("--ok"),
+    ground: g("--ground"), ink: g("--ink"), muted: g("--muted"), line: g("--line"), crash: g("--crash"), ok: g("--ok"),
     hi: g("--obstacle-hi"), lo: g("--obstacle-lo"), attn: g("--attn"), drones: [g("--d0"), g("--d1"), g("--d2")],
   };
 }
@@ -53,6 +56,15 @@ function star(ctx, x, y, r) {
     ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a));
   }
   ctx.closePath();
+}
+
+const overCache = new WeakMap();
+function overFlags(ep) {
+  if (!overCache.has(ep)) {
+    overCache.set(ep, ep.frames.map((f) => f.pos.map((q) => ep.obstacles.some((o) =>
+      Math.hypot(q[0] - o.pos[0], q[1] - o.pos[1]) < o.radius + DRONE_RADIUS))));
+  }
+  return overCache.get(ep);
 }
 
 function crashesUpTo(ep, k) {
@@ -111,14 +123,25 @@ function drawMap(canvas, size, ep, k, showAttn, C) {
     star(ctx, sx(t[0]), sy(t[1]), Math.max(8, size * 0.022));
     ctx.fillStyle = C.drones[i]; ctx.fill(); ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.stroke();
   });
+  const over = overFlags(ep);
   for (let i = 0; i < n; i++) {
-    ctx.strokeStyle = C.drones[i]; ctx.lineWidth = 2; ctx.globalAlpha = 0.75;
-    ctx.beginPath();
-    for (let t = 0; t <= idx; t++) {
-      const q = ep.frames[t].pos[i];
-      if (t) ctx.lineTo(sx(q[0]), sy(q[1])); else ctx.moveTo(sx(q[0]), sy(q[1]));
+    ctx.strokeStyle = C.drones[i]; ctx.lineWidth = 2;
+    let t = 1;
+    while (t <= idx) {
+      const dashed = over[t][i] && !ep.frames[t].hit[i];
+      const p = ep.frames[t - 1].pos[i];
+      ctx.setLineDash(dashed ? [6, 5] : []);
+      ctx.lineWidth = dashed ? 3 : 2;
+      ctx.globalAlpha = dashed ? 1 : 0.8;
+      ctx.beginPath(); ctx.moveTo(sx(p[0]), sy(p[1]));
+      while (t <= idx && (over[t][i] && !ep.frames[t].hit[i]) === dashed) {
+        const q = ep.frames[t].pos[i];
+        ctx.lineTo(sx(q[0]), sy(q[1]));
+        t++;
+      }
+      ctx.stroke();
     }
-    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
   frame.pos.forEach((q, i) => {
     const x = sx(q[0]), y = sy(q[1]), r = Math.max(5, size * 0.014);
@@ -165,6 +188,8 @@ function LegendIcon({ kind, C }) {
       c.beginPath(); c.arc(15, 15, kind === "crash" ? 6 : 8, 0, 7); c.fill(); c.stroke();
     } else if (kind === "star") {
       star(c, 15, 15, 12); c.fillStyle = C.drones[1]; c.fill(); c.strokeStyle = C.ink; c.lineWidth = 1; c.stroke();
+    } else if (kind === "over") {
+      c.strokeStyle = C.drones[0]; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(3, 25); c.lineTo(27, 5); c.stroke();
     } else if (kind === "obstacle") {
       c.fillStyle = C.lo; c.beginPath(); c.arc(15, 15, 12, 0, 7); c.fill();
     } else {
@@ -180,6 +205,8 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(2);
   const [showAttn, setShowAttn] = useState(false);
+  const [pilot, setPilot] = useState("trained");
+  const [resetSignal, setResetSignal] = useState(0);
 
   useEffect(() => {
     if (!playing) return;
@@ -208,10 +235,7 @@ export default function App() {
   return (
     <div className="wrap">
       <header>
-        <div className="eyebrow">Zippie · map seed {DATA.seed} · 0.1 s per step</div>
         <h1>Four pilots, one map, three drones</h1>
-        <p className="lede">Each drone has to fly to the star of its own colour without hitting the grey obstacles. Every panel replays the same map with a different pilot in charge. Press play and watch who gets there, and who crashes on the way.</p>
-        {DATA.note && <p className="lede note-line">{DATA.note}</p>}
       </header>
 
       <div className="controls" role="group" aria-label="Replay controls">
@@ -235,13 +259,29 @@ export default function App() {
         {DATA.episodes.map((ep) => <Panel key={ep.policy} ep={ep} k={k} showAttn={showAttn} tokens={tokens} />)}
       </div>
 
+      <section className="card view3d">
+        <div className="view3d-head">
+          <h3>3D view</h3>
+          <div className="pilots" role="group" aria-label="Pilot shown in 3D">
+            {DATA.episodes.map((ep) => (
+              <button key={ep.policy} type="button" aria-pressed={pilot === ep.policy} onClick={() => setPilot(ep.policy)}>
+                {DATA.titles[ep.policy].split(" (")[0].split(":")[0]}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => setResetSignal((r) => r + 1)}>Reset camera</button>
+        </div>
+        <Scene3D ep={DATA.episodes.find((e) => e.policy === pilot)} k={k} bounds={DATA.bounds} tokens={tokens} resetSignal={resetSignal} />
+        <p className="note">Same moment as the maps above, now with height. Drag to rotate, scroll to zoom, right-drag to pan. Dashed lines drop from each drone and target to the ground so you can read their altitude.</p>
+      </section>
+
       <div className="below">
         <div className="card">
           <h3>How to read the map</h3>
           <ul className="legend">
             {LEGEND.map(([kind, text]) => <li key={kind}><LegendIcon kind={kind} C={tokens} /><span>{text}</span></li>)}
           </ul>
-          <p className="note">The map is seen from above. Obstacles float at different heights, so a drone can pass over or under one; that is why a path may cross a grey circle without a crash.</p>
+          <p className="note">The map is seen from above. Obstacles float at different heights, so a drone can pass over or under one. Its trail turns dashed while it does; a real hit shows as a red ring and counts as a crash.</p>
         </div>
         <div className="card">
           <h3>Across {DATA.summary_episodes ?? 30} random maps</h3>
