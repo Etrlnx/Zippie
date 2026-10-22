@@ -87,12 +87,21 @@ def summarize(ep, upto):
     return sum(frames[-1]["arrived"]), n, crashes
 
 
+def fly_over_mask(ep, drone_radius=0.5):
+    obs = np.array([o["pos"][:2] for o in ep["obstacles"]]).reshape(-1, 2)
+    rad = np.array([o["radius"] for o in ep["obstacles"]]) + drone_radius
+    pos = np.array([f["pos"] for f in ep["frames"]])[:, :, :2]
+    hit = np.array([f["hit"] for f in ep["frames"]])
+    overlap = (np.linalg.norm(pos[:, :, None, :] - obs[None, None], axis=-1) < rad).any(-1)
+    return overlap & ~hit
+
+
 def render_gif(episodes, bounds, path, stride, fps):
     fig, axes = plt.subplots(2, 2, figsize=(12, 12.6))
     fig.subplots_adjust(left=0.03, right=0.97, top=0.9, bottom=0.04, wspace=0.08, hspace=0.18)
     fig.suptitle("Three drones, each flying to its own star. Same map, four different pilots.", fontsize=15, fontweight="bold")
-    fig.text(0.5, 0.925, "Seen from above. Grey circles are obstacles at different heights; a drone can pass over or under one. "
-             "Red flash = crash.", ha="center", fontsize=10, color="#444")
+    fig.text(0.5, 0.925, "Seen from above. Grey circles are obstacles at different heights. Dashed trail = flying over or under "
+             "an obstacle with no contact. Red ring = crash.", ha="center", fontsize=10, color="#444")
     artists = []
     for ax, ep in zip(axes.flat, episodes):
         ax.set_xlim(bounds[0], bounds[1])
@@ -107,30 +116,35 @@ def render_gif(episodes, bounds, path, stride, fps):
         n = len(ep["targets"])
         for i, t in enumerate(ep["targets"]):
             ax.scatter(t[0], t[1], marker="*", s=420, color=DRONE_COLORS[i], edgecolors="black", zorder=2)
-        trails = [ax.plot([], [], color=DRONE_COLORS[i], lw=2, alpha=0.7, zorder=3)[0] for i in range(n)]
+        trails = [(ax.plot([], [], color=DRONE_COLORS[i], lw=2, alpha=0.75, zorder=3)[0],
+                   ax.plot([], [], color=DRONE_COLORS[i], lw=2.6, ls=(0, (1.1, 1.1)), zorder=3)[0]) for i in range(n)]
         dots = ax.scatter([0] * n, [0] * n, s=140, c=DRONE_COLORS[:n], edgecolors="black", linewidths=1.5, zorder=4)
         status = ax.text(0.02, 0.02, "", transform=ax.transAxes, fontsize=11, zorder=5,
                          bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "#999"})
-        artists.append((ep, trails, dots, status))
+        artists.append((ep, fly_over_mask(ep), trails, dots, status))
 
     total = max(len(ep["frames"]) for ep in episodes)
     frame_ids = list(range(0, total, stride)) + [total - 1] * fps * 2
 
     def update(k):
         out = []
-        for ep, trails, dots, status in artists:
+        for ep, over, trails, dots, status in artists:
             idx = min(k, len(ep["frames"]) - 1)
             hist = np.array([f["pos"] for f in ep["frames"][: idx + 1]])
             frame = ep["frames"][idx]
-            for i, line in enumerate(trails):
-                line.set_data(hist[:, i, 0], hist[:, i, 1])
+            for i, (solid, dashed) in enumerate(trails):
+                seg = over[1: idx + 1, i]
+                dashed_pts = np.r_[seg, False] | np.r_[False, seg]
+                solid_pts = np.r_[~seg, False] | np.r_[False, ~seg]
+                for line, keep in ((solid, solid_pts), (dashed, dashed_pts)):
+                    line.set_data(np.where(keep, hist[:, i, 0], np.nan), np.where(keep, hist[:, i, 1], np.nan))
             dots.set_offsets(hist[-1, :, :2])
             dots.set_edgecolors(["red" if h else "black" for h in frame["hit"]])
             dots.set_sizes([420 if h else 140 for h in frame["hit"]])
             arrived, n, crashes = summarize(ep, idx)
             finished = " (finished)" if idx == len(ep["frames"]) - 1 and idx < total - 1 else ""
             status.set_text(f"time {idx * 0.1:5.1f}s{finished}   arrived {arrived}/{n}   crashes {crashes}")
-            out += [*trails, dots, status]
+            out += [line for pair in trails for line in pair] + [dots, status]
         return out
 
     FuncAnimation(fig, update, frames=frame_ids, blit=False).save(path, writer=PillowWriter(fps=fps), dpi=70)
@@ -148,7 +162,6 @@ def main():
     parser.add_argument("--fps", type=int, default=20)
     parser.add_argument("--no_gif", action="store_true")
     parser.add_argument("--summary_episodes", type=int, default=30)
-    parser.add_argument("--note", type=str, default="", help="shown under the page intro, e.g. why this map was picked")
     args = parser.parse_args()
 
     with open(args.config, "rb") as f:
@@ -178,7 +191,7 @@ def main():
 
     bounds = config["simulation"]["world_bounds"]
     data = {"seed": args.seed, "checkpoint": args.checkpoint, "bounds": bounds, "dt": config["environment"]["dt"],
-            "titles": TITLES, "summary_episodes": args.summary_episodes, "note": args.note, "episodes": episodes}
+            "titles": TITLES, "summary_episodes": args.summary_episodes, "episodes": episodes}
     with open(out_dir / "episodes.json", "w") as f:
         json.dump(data, f, separators=(",", ":"))
     with open(out_dir / "summary.json", "w") as f:
