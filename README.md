@@ -35,7 +35,7 @@ This framework solves these challenges through:
 - **Relational Reasoning via Graph Transformer**: Nodes communicate via multi-head self-attention with continuous logarithmic distance biases ($-|\gamma| \cdot \log(1 + d_{ij})$), preventing node isolation while prioritizing local interactions.
 - **CTDE (MAPPO) Policy**: Decentralized actor heads execute actions per drone from individual node embeddings, while a centralized value critic evaluates global team states.
 - **Intrinsic Explainability**: Multi-layer attention weights are exposed to rank top influential neighbors (drones/obstacles) guiding each maneuver.
-- **Behavior Cloning Bootstrap**: Optional imitation-learning warm start (`bc_pretrain.py`) against a greedy oracle, then RL fine-tuned — the step that took success rate from 0% to non-zero on this task; see [§7](#7-usage--training).
+- **Teacher → DAgger → RL Pipeline**: The policy first imitates an obstacle-aware look-ahead planner (`bc_pretrain.py`), is corrected with DAgger on the states it actually visits, then is RL fine-tuned. Pure RL from scratch never left 0% success on this task; see [§7](#7-usage--training).
 
 ---
 
@@ -55,7 +55,7 @@ flowchart LR
 
 ### Module Breakdown
 - **`airsim_interface`**: Fast surrogate 3D physics environment with boundary constraints, obstacle collision checking, battery dynamics, and Microsoft AirSim compatibility.
-- **`state_processing`**: Fuses GPS, IMU, LiDAR range vectors, battery state, and target vectors into normalized 16-dimensional node feature vectors and calculates pairwise Euclidean distance matrices.
+- **`state_processing`**: Builds normalized 16-dimensional node features (position, velocity, battery, target vector) and pairwise Euclidean distance matrices. With `model.obstacle_sensor = true`, each drone also gets a nearest-obstacle proximity vector (direction × closeness within `sensor_range`), a one-beam LiDAR summary.
 - **`graph_transformer`**: Custom pure PyTorch Graph Transformer featuring learnable per-head distance penalty scaling ($\gamma$) and multi-head attention extraction.
 - **`rl_engine`**: Multi-Agent PPO (MAPPO) with per-agent Generalized Advantage Estimation (GAE), clipped surrogate + value-clipped objective, entropy regularization, and multi-objective reward assignment. Action space is 8 discrete actions (hover, ±X, ±Y, ±Z, plus a dynamic brake that exactly zeroes current velocity in one step).
 - **`explainability`**: Attention rollout extraction, multi-layer attention heatmaps, and top-$K$ influential entity ranking per drone.
@@ -94,7 +94,7 @@ flowchart TD
 | RL Algorithm | Custom MAPPO (CTDE) | Multi-agent on-policy actor-critic with GAE |
 | Graph Attention | Custom Graph Transformer | Dense self-attention with continuous distance bias |
 | Simulation | Fast 3D Surrogate + AirSim Backend | Rapid RL training with optional photorealistic validation |
-| Visualization & Tracking | Matplotlib, TensorBoard | Metric logging, loss curves, and attention heatmap generation |
+| Visualization & Tracking | Matplotlib, TensorBoard, React + Vite | Metric logging, loss curves, attention heatmaps, interactive replay viewer |
 | Testing | `pytest` | Unit and integration test suite |
 
 ---
@@ -106,6 +106,8 @@ flowchart TD
 ├── configs/
 │   ├── default.toml             # TOML experiment & hyperparameter configuration
 │   ├── bc_finetune.toml         # Same as default, separate checkpoint/log dirs for BC fine-tuning
+│   ├── bc_aware.toml            # Obstacle-aware teacher experiments (no sensor)
+│   ├── bc_dagger.toml           # Current best: obstacle sensor + DAgger + RL fine-tune settings
 │   └── toy_debug.toml           # Tiny fast-smoke-test config (2 agents, ~15s run)
 ├── airsim_interface/
 │   ├── env.py                  # 3D surrogate environment & AirSim wrapper
@@ -130,6 +132,10 @@ flowchart TD
 ├── train.py                    # Training CLI entry point with progress tracking; supports --resume
 ├── bc_pretrain.py              # Behavior-cloning pretraining against a greedy oracle (see §7)
 ├── evaluate.py                 # Evaluation CLI entry point with baseline comparisons
+├── replay.py                   # Same map, four pilots side by side -> GIF + JSON for web/
+├── visualize_sample.py         # One trained episode -> spatial-attention snapshots
+├── samples/                    # Saved demo episodes (replay/, bc_rl_demo/)
+├── web/                        # React (Vite) replay viewer for samples/replay/
 ├── pyproject.toml              # Dependencies and project metadata
 └── README.md
 ```
@@ -175,36 +181,54 @@ uv run python train.py --config configs/default.toml --resume checkpoints/best_m
 uv run tensorboard --logdir logs
 ```
 
-### Behavior Cloning Pretraining (Recommended)
-Pure RL from a random init struggled to converge on precise final approach on this task. Pretraining on a greedy-oracle policy, then RL fine-tuning from those weights, is the workflow that produced the first non-zero success rate:
-```bash
-# 1. Pretrain via imitation learning against the oracle
-uv run python bc_pretrain.py --episodes 300 --epochs 15 --batch_size 128
+### Teacher → DAgger → RL Fine-Tune (Recommended)
+Pure RL from a random init never left 0% success on this task. The pipeline that works:
 
-# 2. Fine-tune the pretrained policy with RL
-uv run python train.py --config configs/bc_finetune.toml --resume checkpoints/bc_pretrained.pt
+1. **Teacher**: `oracle_action` in `bc_pretrain.py` tries each move 1.5 s ahead with the drone's own dynamics and rejects moves that come within 1 m of an obstacle or teammate.
+2. **Behavior cloning + DAgger**: the policy copies the teacher, then flies on its own while the teacher labels every state it reaches. Avoidance moves are up-weighted (`--avoid_weight`).
+3. **RL fine-tune**: MAPPO starting from those weights, with a critic-only warm-up (`rl.critic_warmup_iters`) so the untrained critic cannot wreck the copied policy.
+
+```bash
+# ~40 min on CPU
+uv run python bc_pretrain.py --config configs/bc_dagger.toml --episodes 300 --epochs 10     --dagger_rounds 4 --dagger_episodes 30 --dagger_epochs 3 --avoid_weight 5     --out checkpoints_bc_dagger/bc_sensed.pt
+
+# ~45 min on CPU, 500 iterations
+uv run python train.py --config configs/bc_dagger.toml --resume checkpoints_bc_dagger/bc_sensed.pt
 ```
+
+The final checkpoint used below is iteration 500 of that run, saved as `checkpoints_bc_dagger/final_model.pt`.
 
 ---
 
 ## 8. Evaluation & Baseline Comparison
 
 ### Evaluate Trained Policy
-Evaluate the trained checkpoint across test episodes:
+Always pass the config the checkpoint was trained with (`bc_dagger.toml` turns the obstacle sensor on):
 ```bash
-uv run python evaluate.py --checkpoint checkpoints/best_model.pt --episodes 10
+uv run python evaluate.py --config configs/bc_dagger.toml --checkpoint checkpoints_bc_dagger/final_model.pt --episodes 30
 ```
 
 ### Benchmark Against Baselines (MLP & CNN)
 ```bash
-uv run python evaluate.py --checkpoint checkpoints/best_model.pt --compare_baselines --episodes 10
+uv run python evaluate.py --config configs/bc_dagger.toml --checkpoint checkpoints_bc_dagger/final_model.pt --compare_baselines --episodes 30
 ```
 
 ### Deterministic Argmax Evaluation
 To evaluate greedy action selection (`argmax`) rather than stochastic policy sampling:
 ```bash
-uv run python evaluate.py --checkpoint checkpoints/best_model.pt --deterministic
+uv run python evaluate.py --config configs/bc_dagger.toml --checkpoint checkpoints_bc_dagger/final_model.pt --deterministic
 ```
+
+### Current Results
+100 fixed maps (seeds 1000–1099), sampled actions:
+
+| Policy | At least one drone arrives | All three arrive | Maps with a crash |
+|---|---|---|---|
+| Earlier BC + RL model (blind teacher) | 84% | 6% | 45% |
+| **Current model** (`final_model.pt`) | **97%** | **21%** | **12%** |
+| Look-ahead teacher (upper bound, 30 maps) | 100% | 23% | 0% |
+
+"All three arrive" is capped near the teacher's ~23% by the 500-step episode limit on long spawns. Hiding obstacle information from the model raises crash maps from 3% to 47%, so the policy does use what it knows about obstacles.
 
 ---
 
@@ -227,6 +251,16 @@ visualizer.plot_attention_matrix(rollout, node_labels=["Drone_0", "Drone_1", "Ob
 summary = analyzer.generate_decision_summary("drone_0", 0, "move_forward", rollout, node_metadata)
 print(summary["summary_proxy"])
 ```
+
+---
+
+### Interactive Replay (for non-RL audiences)
+`replay.py` runs one map with four pilots (random, straight-line rule, look-ahead teacher, trained model) and writes `samples/replay/replay.gif` plus the JSON that the React viewer in `web/` renders:
+```bash
+uv run python replay.py --config configs/bc_dagger.toml --checkpoint checkpoints_bc_dagger/final_model.pt --seed 2531 --out samples/replay
+cd web && npm install && npm run dev   # http://localhost:5173/
+```
+The viewer has play/pause, a timeline slider, playback speed, and an optional overlay of the model's top attention targets (a hint at what it weighs, not proof of why it moved). Seed 2531 is a deliberately hard map: an obstacle sits on every drone's straight line to its target.
 
 ---
 
