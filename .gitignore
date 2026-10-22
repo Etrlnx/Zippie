@@ -63,3 +63,7 @@ data/raw/
 *.swo
 .DS_Store
 Thumbs.db
+
+# ── Web frontend ──
+node_modules/
+web/dist/
