@@ -1,0 +1,26 @@
+[
+  {
+    "policy": "random",
+    "any": 0.0,
+    "all": 0.0,
+    "crash": 0.0
+  },
+  {
+    "policy": "straight",
+    "any": 1.0,
+    "all": 0.26666666666666666,
+    "crash": 0.43333333333333335
+  },
+  {
+    "policy": "teacher",
+    "any": 1.0,
+    "all": 0.23333333333333334,
+    "crash": 0.0
+  },
+  {
+    "policy": "trained",
+    "any": 1.0,
+    "all": 0.2,
+    "crash": 0.06666666666666667
+  }
+]
